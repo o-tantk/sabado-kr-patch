@@ -14,7 +14,7 @@
 .\tools\test-display.ps1
 ```
 
-`dist/SabadoKorean-v0.1.5-windows-x64.zip`과 `dist/SHA256SUMS.txt`를 릴리스에 첨부합니다. 체크섬 파일은 다운로드한 ZIP의 무결성을 수동으로 확인하려는 사용자를 위한 선택 파일이며 설치에 필요하지 않습니다. 일반 사용자 안내에서는 ZIP 다운로드만 안내합니다. ZIP에는 설치·제거·복구 배치 파일, Windows PowerShell 5.1 스크립트, 패키지 해시 목록, 플러그인·번역·편집 이미지·BepInEx, 사용자 설명서, 외부 라이선스와 UnityDoorstop 소스가 들어갑니다. 일반 사용자 PC에서는 Python을 실행하지 않습니다. Python과 Unity Editor는 배포를 만드는 개발 PC에서만 사용합니다.
+릴리스에는 설치용 `dist/SabadoKorean-v0.1.5-windows-x64.zip`만 첨부합니다. 별도 체크섬 파일은 생성하거나 첨부하지 않습니다. ZIP에는 설치·제거·복구 배치 파일, Windows PowerShell 5.1 스크립트, 패키지 해시 목록, 플러그인·번역·편집 이미지·BepInEx, 사용자 설명서, 외부 라이선스와 UnityDoorstop 소스가 들어갑니다. 일반 사용자 PC에서는 Python을 실행하지 않습니다. Python과 Unity Editor는 배포를 만드는 개발 PC에서만 사용합니다.
 
 배포판 설치 코드는 `installer/engine.ps1`, Steam 라이브러리 탐색은 `installer/discovery.ps1`, 창 표시는 `installer/setup.ps1`, ZIP 구성은 `tools/release.py`가 담당합니다. PowerShell 소스에는 5.1의 한글 인식을 위해 UTF-8 BOM을 유지하고, 배치 파일은 ASCII/CRLF로 패키징합니다. 실행 정책 변경은 해당 PowerShell 프로세스의 `Bypass` 옵션에 한정되며 사용자·시스템 정책을 저장하지 않습니다.
 

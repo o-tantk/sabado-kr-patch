@@ -59,7 +59,6 @@ def main():
                 info.external_attr = 0o644 << 16
                 archive.writestr(info, path.read_bytes())
     checksum = hashlib.sha256(output.read_bytes()).hexdigest()
-    (ROOT / "dist/SHA256SUMS.txt").write_text(checksum + "  " + output.name + "\n", encoding="ascii")
     patch.write_json(ROOT / "local/release-build.json", {"version": version, "staging": str(folder),
                      "archive": str(output), "sha256": checksum, "payload_files": len(hashes)})
     print(json.dumps({"archive": str(output), "staging": str(folder), "sha256": checksum}, indent=2))
