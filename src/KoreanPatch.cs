@@ -13,7 +13,7 @@ using UnityEngine.TextCore.LowLevel;
 
 namespace SabadoKorean
 {
-    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.5")]
+    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.6")]
     public sealed class KoreanPatch : BaseUnityPlugin
     {
         internal static KoreanPatch Instance;

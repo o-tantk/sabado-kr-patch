@@ -1,15 +1,14 @@
 ﻿param(
     [ValidateSet('Install', 'Remove', 'Recover', 'Status')][string]$Action = 'Install',
     [string]$Game,
-    [switch]$NonInteractive,
-    [string]$BackupRoot
+    [switch]$NonInteractive
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'engine.ps1')
 . (Join-Path $PSScriptRoot 'discovery.ps1')
 $packageRoot = Split-Path -Parent $PSScriptRoot
 $title = 'Sabado 한국어 패치'
-$actionName = @{ Install = '설치 / 업데이트'; Remove = '제거'; Recover = '중단 작업 복구'; Status = '설치 상태 확인' }[$Action]
+$actionName = @{ Install = '설치 / 업데이트'; Remove = '패치 제거 / 원상 복구'; Recover = '패치 제거 / 원상 복구'; Status = '설치 상태 확인' }[$Action]
 
 function Select-Sabado {
     $dialog = New-Object Windows.Forms.OpenFileDialog
@@ -47,16 +46,18 @@ try {
 
     # Ask for elevation only when this chosen installation actually needs it.
     if (-not $NonInteractive -and $Action -ne 'Status') {
-        $probe = Join-Path $Game ('.sabado-write-test-' + [Guid]::NewGuid().ToString('N'))
         try {
-            $stream = [IO.File]::Open($probe, 'CreateNew', 'Write', 'None')
-            $stream.Dispose()
-            [IO.File]::Delete($probe)
+            foreach ($folder in @($Game, $packageRoot)) {
+                $probe = Join-Path $folder ('.sabado-write-test-' + [Guid]::NewGuid().ToString('N'))
+                $stream = [IO.File]::Open($probe, 'CreateNew', 'Write', 'None')
+                $stream.Dispose()
+                [IO.File]::Delete($probe)
+            }
         } catch [UnauthorizedAccessException] {
             $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
             $principal = [Security.Principal.WindowsPrincipal]::new($identity)
             if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw }
-            [Windows.Forms.MessageBox]::Show('이 게임 폴더에는 관리자 권한이 필요합니다. 다음 Windows 권한 요청을 승인한 뒤 열린 창에서 진행해 주세요.', $title, 'OK', 'Information') | Out-Null
+            [Windows.Forms.MessageBox]::Show('이 작업에는 관리자 권한이 필요합니다. 다음 Windows 권한 요청을 승인한 뒤 열린 창에서 진행해 주세요.', $title, 'OK', 'Information') | Out-Null
             $arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File "' + $PSCommandPath + '" -Action ' + $Action + ' -Game "' + $Game + '"'
             $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
             exit $child.ExitCode
@@ -64,8 +65,8 @@ try {
     }
     Write-Host "$title - $actionName"
     Write-Host "게임 폴더: $Game"
-    Write-Host '파일 검사 및 백업 중입니다. 완료될 때까지 기다려 주세요.'
-    $result = Invoke-KoreanPatch $Action $Game $packageRoot $BackupRoot
+    Write-Host '파일을 확인하고 있습니다. 완료될 때까지 기다려 주세요.'
+    $result = Invoke-KoreanPatch $Action $Game $packageRoot
     Write-Host $result
     if (-not $NonInteractive) { [Windows.Forms.MessageBox]::Show($result, $title, 'OK', 'Information') | Out-Null }
     exit 0

@@ -2,7 +2,7 @@
 
 이 문서는 0.1.3까지의 README 내용을 이관한 기록입니다. 일반 사용자용 최신 설치·제거 안내는 [README](../README.md)를 참고하세요. 아래의 로컬 경로와 Python 명령은 개발 환경 기준입니다.
 
-## 배포판 빌드 (현재 0.1.5)
+## 배포판 빌드 (현재 0.1.6)
 
 아래에 보존한 소스 빌드 준비와 원본 조사까지 완료한 개발 환경에서 실행합니다.
 
@@ -14,13 +14,17 @@
 .\tools\test-display.ps1
 ```
 
-릴리스에는 설치용 `dist/SabadoKorean-v0.1.5-windows-x64.zip`만 첨부합니다. 별도 체크섬 파일은 생성하거나 첨부하지 않습니다. ZIP에는 설치·제거·복구 배치 파일, Windows PowerShell 5.1 스크립트, 패키지 해시 목록, 플러그인·번역·편집 이미지·BepInEx, 사용자 설명서, 외부 라이선스와 UnityDoorstop 소스가 들어갑니다. 일반 사용자 PC에서는 Python을 실행하지 않습니다. Python과 Unity Editor는 배포를 만드는 개발 PC에서만 사용합니다.
+릴리스에는 설치용 `dist/SabadoKorean-v0.1.6-windows-x64.zip`만 첨부합니다. 별도 체크섬 파일은 생성하거나 첨부하지 않습니다. ZIP에는 설치·복구 배치 파일, Windows PowerShell 5.1 스크립트, 패키지 해시 목록, 플러그인·번역·편집 이미지·BepInEx, 외부 라이선스와 UnityDoorstop 소스가 들어갑니다. 일반 사용자 PC에서는 Python을 실행하지 않습니다. Python과 Unity Editor는 배포를 만드는 개발 PC에서만 사용합니다.
 
 배포판 설치 코드는 `installer/engine.ps1`, Steam 라이브러리 탐색은 `installer/discovery.ps1`, 창 표시는 `installer/setup.ps1`, ZIP 구성은 `tools/release.py`가 담당합니다. PowerShell 소스에는 5.1의 한글 인식을 위해 UTF-8 BOM을 유지하고, 배치 파일은 ASCII/CRLF로 패키징합니다. 실행 정책 변경은 해당 PowerShell 프로세스의 `Bypass` 옵션에 한정되며 사용자·시스템 정책을 저장하지 않습니다.
 
-설치·업데이트·제거는 쓰기 전에 전체 백업과 복구 기록을 완성합니다. `SabadoKorean.pending.json`이 남은 경우 `복구.bat`가 작업 직전 상태를 복원합니다. 업데이트 시 기존 Python 설치 기록을 읽고, 원래 존재하던 파일의 백업을 새 백업 폴더로 복사합니다. 제거 시 지원 빌드 해시 검사를 다시 강제하지 않으므로 게임 업데이트 후에도 관리 파일이 유지되어 있으면 제거할 수 있습니다.
+배포 폴더에는 `설치.bat`와 `복구.bat`만 둡니다. `복구.bat`는 중단된 작업이 있으면 이전 상태를 먼저 복원한 다음 패치를 제거합니다. `제거.bat`, `사용설명서.txt`, 별도 체크섬 파일은 패키징하지 않습니다.
 
-비대화형 검증은 배포 폴더에서 다음처럼 실행할 수 있습니다. 일반 사용자에게는 배치 파일 사용을 안내합니다. `-BackupRoot`는 테스트나 관리 목적의 선택 사항이며 기본값은 `%LOCALAPPDATA%\SabadoKorean\Backups`입니다.
+파일 변경 전에 배치 파일과 같은 폴더에 `SabadoKorean-backup-<GUID>.zip`을 완성합니다. ZIP에는 해당 작업 직전 파일과 복구 기록이 들어갑니다. 작업이 성공하면 해당 백업과 같은 게임의 이전 실패 백업을 삭제합니다. 실패 시에는 이전 상태로 자동 복원하되 ZIP을 보존하고, 강제 종료 등으로 남은 `SabadoKorean.pending.json`은 다음 `복구.bat` 실행에서 처리합니다. 성공한 설치 기록에는 백업 경로를 남기지 않습니다.
+
+원래 있던 비관리 파일은 덮어쓰지 않습니다. 과거 설치가 원래 있던 파일을 덮어쓴 경우에는 기존 백업으로 원본 복구를 먼저 해야 합니다. 새 버전은 AppData에 백업을 생성하지 않으며, 성공 후 이전 버전이 이 게임에 대해 남긴 AppData 백업만 소유 기록과 경로를 검사하여 정리합니다. 다른 파일이나 다른 게임의 백업은 삭제하지 않습니다.
+
+비대화형 검증은 배포 폴더에서 다음처럼 실행할 수 있습니다. `-BackupRoot` 옵션은 제거했으며 백업 위치는 항상 실행한 배치 파일의 폴더입니다.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File installer\setup.ps1 -Action Status -Game 'D:\SteamLibrary\steamapps\common\Sabado' -NonInteractive

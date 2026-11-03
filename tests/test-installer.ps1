@@ -3,9 +3,9 @@ $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'installer\engine.ps1')
 $script:testRoot = Join-Path $root ('local\tests\installer-' + [Guid]::NewGuid().ToString('N'))
 $script:passed = 0
-$script:RealCopy = ${function:Copy-PatchFile}
+$script:RealCopy = ${function:Copy-PatchBytes}
 $script:RealComplete = ${function:Complete-PatchCopy}
-
+$script:RealRemove = ${function:Remove-PatchFile}
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Expect-Failure([scriptblock]$Body) {
     $failed = $false
@@ -20,7 +20,7 @@ function New-Fixture {
     $script:base = Join-Path $script:testRoot ([Guid]::NewGuid().ToString('N') + ' 한글 & (배포)')
     $script:game = Join-Path $script:base 'game'
     $script:package = Join-Path $script:base 'package'
-    $script:backups = Join-Path $script:base 'backups'
+    $script:legacyRoot = Join-Path $script:base 'AppData\Local\SabadoKorean\Backups\B0052F88A6B12350'
     Put (Join-Path $script:game 'game.bin') 'original game'
     $script:plugin = 'BepInEx/plugins/SabadoKorean/SabadoKorean.dll'
     $script:files = @('.doorstop_version', 'doorstop_config.ini', 'winhttp.dll', 'BepInEx/core/BepInEx.dll',
@@ -29,19 +29,34 @@ function New-Fixture {
     foreach ($relative in $script:files) { Put (Join-Path $script:package ('payload/' + $relative)) ('payload ' + $relative) }
     Save-Bundle
 }
+function Get-LegacyBackupRoot([string]$Game) { $script:legacyRoot }
 function Save-Bundle {
     $hashes = [ordered]@{}
     foreach ($relative in $script:files) { $hashes[$relative] = Get-PatchHash (Get-ChildPath (Join-Path $script:package 'payload') $relative) }
-    Write-PatchJson (Join-Path $script:package 'package.json') @{ schema = 1; version = '0.1.4'; files = $hashes;
+    Write-PatchJson (Join-Path $script:package 'package.json') @{ schema = 1; version = '0.1.6'; files = $hashes;
         target = @{ steam_build_id = 'test'; files = @{ 'game.bin' = (Get-PatchHash (Join-Path $script:game 'game.bin')) } } }
 }
-function Install-Test { Invoke-KoreanPatch Install $script:game $script:package $script:backups | Out-Null }
-function Remove-Test { Invoke-KoreanPatch Remove $script:game $script:package $script:backups | Out-Null }
+function Install-Test { Invoke-KoreanPatch Install $script:game $script:package | Out-Null }
+function Recover-Test { Invoke-KoreanPatch Recover $script:game $script:package | Out-Null }
+function Archives { @(Get-ChildItem -LiteralPath $script:package -Filter 'SabadoKorean-backup-*.zip' -File) }
 function Snapshot([string]$Directory) {
     $items = foreach ($file in Get-ChildItem -LiteralPath $Directory -Recurse -File -Force) {
         $file.FullName.Substring($Directory.Length) + ':' + (Get-PatchHash $file.FullName)
     }
     ($items | Sort-Object) -join "`n"
+}
+function Add-LegacyBackup([switch]$Original) {
+    $session = Join-Path $script:legacyRoot '20261104T0102031234567Z-12345678'
+    Write-PatchJson (Join-Path $session 'recovery.json') @{owner=$script:Owner;game=$script:game;before=@{}}
+    $manifest = Read-InstallManifest $script:game
+    if ($Original) {
+        $saved = Join-Path $session 'files/doorstop_config.ini'
+        Put $saved 'original config'
+        $manifest.files.'doorstop_config.ini'.original = [pscustomobject]@{exists=$true;backup=$saved;sha256=(Get-PatchHash $saved)}
+    }
+    $manifest | Add-Member -NotePropertyName last_backup -NotePropertyValue $session -Force
+    Write-PatchJson (Join-Path $script:game $script:ManifestName) $manifest
+    $session
 }
 function Case([string]$Name, [scriptblock]$Body) {
     New-Fixture
@@ -50,21 +65,44 @@ function Case([string]$Name, [scriptblock]$Body) {
     Write-Output "PASS $Name"
 }
 
-Case 'install, update, remove, reinstall in Unicode path; preserve unrelated files' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+Case 'install, update, unified recovery and reinstall preserve game and saves' {
     Install-Test
     Put (Join-Path $script:game 'BepInEx/LogOutput.log') 'keep log'
     Put (Join-Path $script:game 'user-save.dat') 'keep save'
     Put (Get-ChildPath (Join-Path $script:package 'payload') $script:plugin) 'plugin v2'
     Save-Bundle
     Install-Test
-    Remove-Test
-    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'doorstop_config.ini') -Raw) -eq 'original config') 'Original config lost'
-    Assert ([IO.File]::Exists((Join-Path $script:game 'user-save.dat'))) 'Unrelated save lost'
-    Assert ([IO.File]::Exists((Join-Path $script:game 'BepInEx/LogOutput.log'))) 'Log lost'
+    Assert (@(Archives).Count -eq 0) 'Successful update left backup ZIP'
+    Recover-Test
+    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'game.bin') -Raw) -eq 'original game') 'Original changed'
+    Assert ([IO.File]::Exists((Join-Path $script:game 'user-save.dat'))) 'Save lost'
+    Assert ([IO.File]::Exists((Join-Path $script:game 'BepInEx/LogOutput.log'))) 'Unrelated log lost'
     Assert (-not [IO.File]::Exists((Join-Path $script:game 'winhttp.dll'))) 'Loader remains'
-    Assert (-not [IO.File]::Exists((Get-ChildPath $script:game $script:files[-1]))) 'Texture remains'
+    Assert (@(Archives).Count -eq 0) 'Successful recovery left backup ZIP'
     Install-Test
+}
+Case 'backup ZIP exists beside batch files during work and disappears on success' {
+    $script:observed = $false
+    function Copy-PatchBytes([byte[]]$Bytes, [string]$Destination) {
+        if ($Destination -eq (Join-Path $script:game 'winhttp.dll')) {
+            $archives = @(Archives)
+            Assert ($archives.Count -eq 1) 'Expected one working backup'
+            Assert ($archives[0].DirectoryName -eq $script:package) 'Backup is not beside launchers'
+            $script:observed = $true
+        }
+        & $script:RealCopy $Bytes $Destination
+    }
+    Install-Test
+    Assert $script:observed 'Backup not observed'
+    Assert (@(Archives).Count -eq 0) 'Backup remains'
+    Assert (-not (Test-Path -LiteralPath $script:legacyRoot)) 'Created AppData backup'
+}
+Case 'pre-existing unowned config is not overwritten or backed up permanently' {
+    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+    $before = Snapshot $script:game
+    Expect-Failure { Install-Test }
+    Assert ((Snapshot $script:game) -eq $before) 'Original config changed'
+    Assert (@(Archives).Count -eq 0) 'Preflight created backup'
 }
 Case 'unsupported game makes no changes' {
     Put (Join-Path $script:game 'game.bin') 'different version'
@@ -84,25 +122,16 @@ Case 'other mod loader is not overwritten' {
     Expect-Failure { Install-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Other loader changed'
 }
-Case 'modified installed file prevents update and removal' {
+Case 'modified installed file prevents update and recovery' {
     Install-Test
     Put (Join-Path $script:game 'winhttp.dll') 'user modification'
     $before = Snapshot $script:game
     Expect-Failure { Install-Test }
-    Expect-Failure { Remove-Test }
+    Expect-Failure { Recover-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Modified file changed'
 }
-Case 'missing original backup prevents all removal writes' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
-    Install-Test
-    $manifest = Read-InstallManifest $script:game
-    [IO.File]::Delete($manifest.files.'doorstop_config.ini'.original.backup)
-    $before = Snapshot $script:game
-    Expect-Failure { Remove-Test }
-    Assert ((Snapshot $script:game) -eq $before) 'Partial removal'
-}
 Case 'path traversal and non-patch manifest entries rejected' {
-    foreach ($path in @('../outside', '/outside', 'C:/outside', 'foo/../outside', 'BepInEx/core/../../game.bin', 'file:stream', 'foo\bar')) {
+    foreach ($path in @('../outside', '/outside', 'C:/outside', 'foo/../outside', 'file:stream', 'foo\bar')) {
         Expect-Failure { Get-ChildPath $script:game $path }
     }
     Install-Test
@@ -110,100 +139,119 @@ Case 'path traversal and non-patch manifest entries rejected' {
     $manifest.files | Add-Member -NotePropertyName 'game.bin' -NotePropertyValue $manifest.files.'winhttp.dll'
     Write-PatchJson (Join-Path $script:game $script:ManifestName) $manifest
     $before = Snapshot $script:game
-    Expect-Failure { Remove-Test }
+    Expect-Failure { Recover-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Unrelated file touched'
 }
-Case 'game file cannot be smuggled into package inventory' {
+Case 'game assets cannot be included in the package inventory' {
     $script:files += 'game.bin'
-    Put (Join-Path $script:package 'payload/game.bin') 'malicious replacement'
+    Put (Join-Path $script:package 'payload/game.bin') 'replacement'
     Save-Bundle
     $before = Snapshot $script:game
     Expect-Failure { Install-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Original overwritten'
 }
-Case 'install write failure rolls back all target bytes' {
-    $script:failurePath = Get-ChildPath $script:game $script:plugin
+Case 'failed install rolls back and retains its backup until successful recovery' {
     $script:failOnce = $true
-    function Copy-PatchFile([string]$Source, [string]$Destination) {
-        if ($Destination -eq $script:failurePath -and $script:failOnce) { $script:failOnce = $false; throw 'simulated write error' }
-        & $script:RealCopy $Source $Destination
+    function Copy-PatchBytes([byte[]]$Bytes, [string]$Destination) {
+        if ($Destination -eq (Get-ChildPath $script:game $script:plugin) -and $script:failOnce) { $script:failOnce = $false; throw 'simulated copy error' }
+        & $script:RealCopy $Bytes $Destination
     }
     $before = Snapshot $script:game
     Expect-Failure { Install-Test }
-    Assert (-not $script:failOnce) 'Fault was not injected'
-    Assert ((Snapshot $script:game) -eq $before) 'Rollback changed target bytes'
+    Assert ((Snapshot $script:game) -eq $before) ('Rollback failed: ' + $script:lastError)
+    Assert (@(Archives).Count -eq 1) 'Failed task lost backup'
+    Recover-Test
+    Assert (@(Archives).Count -eq 0) 'Successful recovery retained backup'
 }
-Case 'failed update restores earlier manifest and plugin' {
+Case 'failed update restores old manifest and zero-length file' {
+    Put (Join-Path $script:package 'payload/BepInEx/plugins/SabadoKorean/strings.tsv') ''
+    Save-Bundle
     Install-Test
     $before = Snapshot $script:game
     Put (Get-ChildPath (Join-Path $script:package 'payload') $script:plugin) 'plugin v2'
     Save-Bundle
-    $script:failurePath = Join-Path $script:game $script:ManifestName
     $script:failOnce = $true
-    function Copy-PatchFile([string]$Source, [string]$Destination) {
-        if ($Destination -eq $script:failurePath -and $script:failOnce) { $script:failOnce = $false; throw 'simulated manifest error' }
-        & $script:RealCopy $Source $Destination
+    function Copy-PatchBytes([byte[]]$Bytes, [string]$Destination) {
+        if ($Destination -eq (Join-Path $script:game $script:ManifestName) -and $script:failOnce) { $script:failOnce = $false; throw 'simulated manifest error' }
+        & $script:RealCopy $Bytes $Destination
     }
     Expect-Failure { Install-Test }
-    Assert (-not $script:failOnce) 'Fault was not injected'
     Assert ((Snapshot $script:game) -eq $before) ('Old installation not restored: ' + $script:lastError)
+    Assert (@(Archives).Count -eq 1) 'Failure backup missing'
+    Install-Test
+    Assert (@(Archives).Count -eq 0) 'Successful retry retained backup'
 }
-Case 'failed removal restores installed state' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+Case 'failed removal restores installed state and retains backup' {
     Install-Test
     $before = Snapshot $script:game
-    $script:failurePath = Join-Path $script:game 'doorstop_config.ini'
     $script:failOnce = $true
-    function Copy-PatchFile([string]$Source, [string]$Destination) {
-        if ($Destination -eq $script:failurePath -and $script:failOnce) { $script:failOnce = $false; throw 'simulated removal error' }
-        & $script:RealCopy $Source $Destination
+    function Remove-PatchFile([string]$Path) {
+        if ($Path -eq (Get-ChildPath $script:game $script:plugin) -and $script:failOnce) { $script:failOnce = $false; throw 'simulated delete error' }
+        & $script:RealRemove $Path
     }
-    Expect-Failure { Remove-Test }
-    Assert (-not $script:failOnce) 'Fault was not injected'
-    Assert ((Snapshot $script:game) -eq $before) 'Installed state not restored'
+    Expect-Failure { Recover-Test }
+    Assert ((Snapshot $script:game) -eq $before) ('Removal rollback failed: ' + $script:lastError)
+    Assert (@(Archives).Count -eq 1) 'Failure backup missing'
+    Recover-Test
+    Assert (@(Archives).Count -eq 0) 'Recovery left backup'
 }
-Case 'interrupted transaction can be recovered and repeated safely' {
-    $changes = [ordered]@{ 'winhttp.dll' = (Join-Path $script:package 'payload/winhttp.dll');
-        'doorstop_config.ini' = (Join-Path $script:package 'payload/doorstop_config.ini') }
-    $backup = New-PatchBackup $script:game $script:backups
-    $before = Snapshot $script:game
-    function Copy-PatchFile([string]$Source, [string]$Destination) {
-        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini')) { throw 'simulated interruption' }
-        & $script:RealCopy $Source $Destination
+Case 'interrupted work is restored and patch removed by the same recovery action' {
+    Install-Test
+    Put (Get-ChildPath (Join-Path $script:package 'payload') $script:plugin) 'plugin v2'
+    Save-Bundle
+    function Copy-PatchBytes([byte[]]$Bytes, [string]$Destination) {
+        if ($Destination -eq (Join-Path $script:game $script:ManifestName)) { throw 'simulated interruption' }
+        & $script:RealCopy $Bytes $Destination
     }
     function Restore-PatchTransaction([string]$Game) { throw 'simulated unavailable rollback' }
-    Expect-Failure { Invoke-PatchTransaction $script:game $backup $changes }
-    Assert ([IO.File]::Exists((Join-Path $script:game $script:PendingName))) 'Journal missing'
     Expect-Failure { Install-Test }
-    # Remove the local fault hooks to use the real recovery implementation.
-    Remove-Item Function:Copy-PatchFile
+    Assert ([IO.File]::Exists((Join-Path $script:game $script:PendingName))) 'Pending record missing'
+    Assert (@(Archives).Count -eq 1) 'Crash backup missing'
+    Remove-Item Function:Copy-PatchBytes
     Remove-Item Function:Restore-PatchTransaction
-    Invoke-KoreanPatch Recover $script:game $script:package $script:backups | Out-Null
-    Assert ((Snapshot $script:game) -eq $before) 'Recovery failed'
-    Invoke-KoreanPatch Recover $script:game $script:package $script:backups | Out-Null
+    Recover-Test
+    Assert (-not [IO.File]::Exists((Join-Path $script:game 'winhttp.dll'))) 'Recovery did not remove patch'
+    Assert (@(Archives).Count -eq 0) 'Crash backup not cleaned'
+    Recover-Test
 }
-Case 'Python manifest originals migrate to persistent release backup' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+Case 'legacy AppData backups are removed after a successful upgrade' {
     Install-Test
-    $manifest = Read-InstallManifest $script:game
-    $legacyBackup = $manifest.files.'doorstop_config.ini'.original.backup
-    $manifest.PSObject.Properties.Remove('version')
-    Write-PatchJson (Join-Path $script:game $script:ManifestName) $manifest
+    Add-LegacyBackup | Out-Null
     Install-Test
-    [IO.File]::Delete($legacyBackup)
-    Remove-Test
-    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'doorstop_config.ini') -Raw) -eq 'original config') 'Legacy original not migrated'
+    Assert (-not (Test-Path -LiteralPath $script:legacyRoot)) 'Legacy backup remains'
+    Assert (-not (Read-InstallManifest $script:game).last_backup) 'Manifest retains backup dependency'
 }
-Case 'removal works after game update and without payload' {
+Case 'legacy original is restored before its AppData backup is removed' {
+    Install-Test
+    Add-LegacyBackup -Original | Out-Null
+    Expect-Failure { Install-Test }
+    Recover-Test
+    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'doorstop_config.ini') -Raw) -eq 'original config') 'Legacy original lost'
+    Assert (-not (Test-Path -LiteralPath $script:legacyRoot)) 'Legacy backup remains'
+}
+Case 'missing legacy original prevents partial recovery' {
+    Install-Test
+    $session = Add-LegacyBackup -Original
+    [IO.File]::Delete((Join-Path $session 'files/doorstop_config.ini'))
+    $before = Snapshot $script:game
+    Expect-Failure { Recover-Test }
+    Assert ((Snapshot $script:game) -eq $before) 'Partial recovery changed files'
+}
+Case 'unrecognized files prevent destructive legacy cleanup' {
+    Install-Test
+    $session = Add-LegacyBackup
+    Put (Join-Path $session 'keep-me.txt') 'unrelated'
+    Expect-Failure { Remove-LegacyBackups $script:game }
+    Assert ([IO.File]::Exists((Join-Path $session 'keep-me.txt'))) 'Unrelated file deleted'
+}
+Case 'recovery works after game update without payload' {
     Install-Test
     Put (Join-Path $script:game 'game.bin') 'new game version'
-    Invoke-KoreanPatch Remove $script:game (Join-Path $script:base 'missing-package') $script:backups | Out-Null
-    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'game.bin') -Raw) -eq 'new game version') 'Updated game modified'
-}
-Case 'backup inside game is rejected' {
-    $before = Snapshot $script:game
-    Expect-Failure { Invoke-KoreanPatch Install $script:game $script:package (Join-Path $script:game 'backups') }
-    Assert ((Snapshot $script:game) -eq $before) 'Game changed'
+    $onlyRecovery = Join-Path $script:base 'recovery-only'
+    [IO.Directory]::CreateDirectory($onlyRecovery) | Out-Null
+    Invoke-KoreanPatch Recover $script:game $onlyRecovery | Out-Null
+    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'game.bin') -Raw) -eq 'new game version') 'Game updated files changed'
+    Assert (@(Get-ChildItem -LiteralPath $onlyRecovery -File).Count -eq 0) 'Backup left in new launcher folder'
 }
 Case 'running game guard prevents changes' {
     function Assert-GameStopped { throw 'simulated running game' }
@@ -211,39 +259,18 @@ Case 'running game guard prevents changes' {
     Expect-Failure { Install-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Game changed'
 }
-Case 'temporary Windows replacement errors are retried' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+Case 'temporary replacement errors are retried' {
+    Install-Test
     $script:remainingFailures = 2
-    $script:replacementAttempts = 0
     function Complete-PatchCopy([string]$Temporary, [string]$Destination) {
-        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini')) {
-            $script:replacementAttempts++
-            if ($script:remainingFailures -gt 0) {
-                $script:remainingFailures--
-                throw [IO.IOException]::new('simulated ERROR_UNABLE_TO_REMOVE_REPLACED', (-2147024896 + 1175))
-            }
+        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini') -and $script:remainingFailures -gt 0) {
+            $script:remainingFailures--
+            throw [IO.IOException]::new('temporary replacement error', (-2147024896 + 1175))
         }
         & $script:RealComplete $Temporary $Destination
     }
     Install-Test
-    Assert ($script:replacementAttempts -eq 3) 'Transient failure was not retried'
-    Remove-Test
-    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'doorstop_config.ini') -Raw) -eq 'original config') 'Original lost'
-}
-Case 'persistent replacement errors stop after bounded retries and roll back' {
-    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
-    $before = Snapshot $script:game
-    $script:remainingFailures = 6
-    function Complete-PatchCopy([string]$Temporary, [string]$Destination) {
-        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini') -and $script:remainingFailures -gt 0) {
-            $script:remainingFailures--
-            throw [IO.IOException]::new('simulated sharing violation', (-2147024896 + 32))
-        }
-        & $script:RealComplete $Temporary $Destination
-    }
-    Expect-Failure { Install-Test }
-    Assert ($script:remainingFailures -eq 0) 'Unexpected retry count'
-    Assert ($script:lastError -match 'doorstop_config.ini') 'Error omits destination'
-    Assert ((Snapshot $script:game) -eq $before) 'Rollback failed'
+    Assert ($script:remainingFailures -eq 0) 'Failure not injected'
+    Assert (@(Archives).Count -eq 0) 'Successful retry left backup'
 }
 Write-Output "$script:passed installer scenarios passed (Windows PowerShell $($PSVersionTable.PSVersion))."

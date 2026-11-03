@@ -38,14 +38,13 @@ def main():
         hashes[relative] = patch.sha256(payload / relative)
     patch.write_json(folder / "package.json", {"schema": 1, "version": version,
                      "target": patch.read_json(ROOT / "config/target.json"), "files": hashes})
-    for source, name in (("Install.bat", "설치.bat"), ("Remove.bat", "제거.bat"), ("Recover.bat", "복구.bat")):
+    for source, name in (("Install.bat", "설치.bat"), ("Recover.bat", "복구.bat")):
         content = (ROOT / "installer" / source).read_text(encoding="ascii")
         (folder / name).write_bytes(content.replace("\r\n", "\n").replace("\n", "\r\n").encode("ascii"))
     (folder / "installer").mkdir()
     for name in ("engine.ps1", "discovery.ps1", "setup.ps1"):
         content = (ROOT / "installer" / name).read_text(encoding="utf-8-sig")
         (folder / "installer" / name).write_text(content, encoding="utf-8-sig")
-    shutil.copyfile(ROOT / "README.md", folder / "사용설명서.txt")
     shutil.copyfile(ROOT / "THIRD-PARTY-NOTICES.md", folder / "THIRD-PARTY-NOTICES.md")
     shutil.copytree(ROOT / "licenses", folder / "licenses")
     (folder / "third-party-sources").mkdir()
