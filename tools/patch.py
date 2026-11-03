@@ -128,9 +128,30 @@ def package():
     for name, table in (("strings.tsv", keyed), ("ui.tsv", ui)):
         content = "\n".join(k + "\t" + v.replace("\n", "\\n") for k, v in sorted(table.items())) + "\n"
         (plugin / name).write_text(content, encoding="utf-8")
+    textures = read_json(ROOT / "translations/textures.json")
+    texture_rows = []
+    from PIL import Image
+    for entry in textures:
+        name = entry["file"]
+        if not re.fullmatch(r"[a-z0-9-]+\.png", name):
+            raise ValueError("Unsafe texture filename")
+        source = ROOT / "assets/textures" / name
+        with Image.open(source) as image:
+            # Generated outputs may round dimensions by one pixel. Reject a change
+            # greater than 0.2%; retain the original UI RectTransform/mesh UVs.
+            ratio_error = abs(image.width * entry["height"] / (image.height * entry["width"]) - 1)
+            if image.format != "PNG" or ratio_error > 0.002:
+                raise ValueError("Texture aspect ratio/format mismatch: " + name)
+            image.verify()
+        row = [entry["texture"], str(entry["width"]), str(entry["height"]), entry.get("material", ""), entry.get("property", ""), name, entry["kind"]]
+        if any("\t" in value or "\n" in value or "\r" in value for value in row):
+            raise ValueError("Invalid texture table field")
+        texture_rows.append("\t".join(row))
+        atomic_copy(source, plugin / "textures" / name)
+    (plugin / "textures.tsv").write_text("\n".join(texture_rows) + "\n", encoding="utf-8")
     result = {"translated_keys": len(translations), "runtime_key_aliases": len(keyed),
               "ui_matches": len(ui), "ambiguous_ui_matches_skipped": conflicts,
-              "english_keys": sum(bool(row["en"]) for row in catalog)}
+              "english_keys": sum(bool(row["en"]) for row in catalog), "texture_slots": len(textures)}
     write_json(ROOT / "local/package-report.json", result)
     print(json.dumps(result, indent=2))
     return folder
@@ -154,10 +175,12 @@ def install(game, package_dir, backups, target):
     if "BepInEx/plugins/SabadoKorean/SabadoKorean.dll" not in sources:
         raise ValueError("Package does not contain the patch plugin")
     allowed_root = {"winhttp.dll", "doorstop_config.ini", ".doorstop_version"}
-    allowed_plugin = {"SabadoKorean.dll", "strings.tsv", "ui.tsv"}
+    prefix = "BepInEx/plugins/SabadoKorean/"
+    allowed_plugin = {prefix + name for name in ("SabadoKorean.dll", "strings.tsv", "ui.tsv", "textures.tsv")}
+    allowed_plugin.update(prefix + "textures/" + entry["file"] for entry in read_json(ROOT / "translations/textures.json"))
     for relative in sources:
         is_core = relative.startswith("BepInEx/core/") and Path(relative).suffix in {".dll", ".xml"}
-        is_plugin = relative.startswith("BepInEx/plugins/SabadoKorean/") and Path(relative).name in allowed_plugin
+        is_plugin = relative in allowed_plugin
         if relative not in allowed_root and not is_core and not is_plugin:
             raise ValueError("Unexpected package file; refusing installation: " + relative)
     for relative, record in previous_files.items():

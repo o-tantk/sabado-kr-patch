@@ -90,6 +90,30 @@ class PatchSafetyTests(unittest.TestCase):
             self.install()
         self.assertEqual((self.game / "game.bin").read_bytes(), b"original game")
 
+    def test_translated_texture_is_journalled_and_removed(self):
+        relative = "BepInEx/plugins/SabadoKorean/textures/second-floor-note.png"
+        destination = patch.child(self.package, relative)
+        destination.parent.mkdir(parents=True)
+        destination.write_bytes(b"translated image")
+        self.install()
+        self.assertEqual(patch.child(self.game, relative).read_bytes(), b"translated image")
+        destination.write_bytes(b"updated image")
+        self.install()
+        self.assertTrue(any(patch.child(p.parent / "files", relative).exists()
+                            for p in (self.base / "backups").glob("*/recovery.json")))
+        patch.remove(self.game)
+        self.assertFalse(patch.child(self.game, relative).exists())
+
+    def test_uncatalogued_texture_and_nested_plugin_are_rejected(self):
+        for relative in ("BepInEx/plugins/SabadoKorean/textures/unexpected.png",
+                         "BepInEx/plugins/SabadoKorean/elsewhere/SabadoKorean.dll"):
+            destination = patch.child(self.package, relative)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"unexpected")
+            with self.assertRaises(ValueError):
+                self.install()
+            destination.unlink()
+
     def test_translation_tokens_and_native_quote_alias(self):
         key = 'key "quoted"'
         identity = patch.source_id(key)

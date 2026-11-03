@@ -13,7 +13,7 @@ using UnityEngine.TextCore.LowLevel;
 
 namespace SabadoKorean
 {
-    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.2")]
+    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.3")]
     public sealed class KoreanPatch : BaseUnityPlugin
     {
         internal static KoreanPatch Instance;
@@ -32,6 +32,7 @@ namespace SabadoKorean
         private bool fontReady;
         private Harmony harmony;
         private float nextScan;
+        private TextureTranslations textureTranslations;
 
         private void Awake()
         {
@@ -40,6 +41,8 @@ namespace SabadoKorean
             string folder = Path.GetDirectoryName(Info.Location);
             LoadTable(Path.Combine(folder, "strings.tsv"), translations);
             LoadTable(Path.Combine(folder, "ui.tsv"), ui);
+            try { textureTranslations = new TextureTranslations(folder, Logger); }
+            catch (Exception ex) { Logger.LogError("Image translations disabled: " + ex); }
             harmony = new Harmony("local.sabado.korean");
             harmony.PatchAll(typeof(KoreanPatch).Assembly);
             Logger.LogInfo("Loaded " + translations.Count + " keyed translations and " + ui.Count + " exact UI matches. Game " + Application.version + "; Unity " + Application.unityVersion);
@@ -183,6 +186,16 @@ namespace SabadoKorean
 
         private void Update()
         {
+            if (textureTranslations != null)
+            {
+                try { textureTranslations.Update(Active); }
+                catch (Exception ex)
+                {
+                    Logger.LogError("Image translations disabled after a runtime error: " + ex);
+                    textureTranslations.Dispose();
+                    textureTranslations = null;
+                }
+            }
             if (Time.unscaledTime < nextScan || koreanFont == null) return;
             nextScan = Time.unscaledTime + 0.35f;
             foreach (TMP_Text component in UnityEngine.Object.FindObjectsByType<TMP_Text>(FindObjectsSortMode.None))
@@ -248,6 +261,7 @@ namespace SabadoKorean
 
         private void OnDestroy()
         {
+            if (textureTranslations != null) textureTranslations.Dispose();
             if (harmony != null) harmony.UnpatchSelf();
             foreach (Material material in styledMaterials.Values)
                 if (material != null) Destroy(material);
