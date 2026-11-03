@@ -149,6 +149,13 @@ def install(game, package_dir, backups, target):
     sources = {p.relative_to(package_dir).as_posix(): p for p in package_dir.rglob("*") if p.is_file()}
     if "BepInEx/plugins/SabadoKorean/SabadoKorean.dll" not in sources:
         raise ValueError("Package does not contain the patch plugin")
+    allowed_root = {"winhttp.dll", "doorstop_config.ini", ".doorstop_version"}
+    allowed_plugin = {"SabadoKorean.dll", "strings.tsv", "ui.tsv"}
+    for relative in sources:
+        is_core = relative.startswith("BepInEx/core/") and Path(relative).suffix in {".dll", ".xml"}
+        is_plugin = relative.startswith("BepInEx/plugins/SabadoKorean/") and Path(relative).name in allowed_plugin
+        if relative not in allowed_root and not is_core and not is_plugin:
+            raise ValueError("Unexpected package file; refusing installation: " + relative)
     for relative, record in previous_files.items():
         destination = child(game, relative)
         if not destination.is_file() or sha256(destination) != record["installed_sha256"]:

@@ -21,6 +21,9 @@ namespace SabadoKorean
         private readonly Dictionary<string, string> ui = new Dictionary<string, string>();
         private readonly Dictionary<string, string> hashes = new Dictionary<string, string>();
         private readonly Dictionary<int, string[]> changed = new Dictionary<int, string[]>();
+        private readonly Dictionary<int, TMP_FontAsset> originalFonts = new Dictionary<int, TMP_FontAsset>();
+        private readonly Dictionary<int, Material> originalMaterials = new Dictionary<int, Material>();
+        private readonly Dictionary<int, float[]> originalLayout = new Dictionary<int, float[]>();
         private readonly HashSet<string> reported = new HashSet<string>();
         private ConfigEntry<bool> patchEnabled;
         private TMP_FontAsset koreanFont;
@@ -63,6 +66,7 @@ namespace SabadoKorean
                 bool complete = koreanFont.TryAddCharacters(characters, out missing);
                 Logger.LogInfo("Korean font ready. Characters=" + characters.Length + "; complete=" + complete + "; missing=" + missing);
                 fontReady = true;
+                foreach (var font in Resources.FindObjectsOfTypeAll<TMP_FontAsset>()) AttachFallback(font);
             }
             catch (Exception ex)
             {
@@ -83,11 +87,13 @@ namespace SabadoKorean
             }
         }
 
+        internal bool Enabled { get { return fontReady && patchEnabled.Value; } }
+
         internal bool Active
         {
             get
             {
-                return fontReady && patchEnabled.Value && (CSVLocalizationManager.Instance == null || CSVLocalizationManager.Instance.CurrentLanguageCSVHeader == "English");
+                return Enabled && (CSVLocalizationManager.Instance == null || CSVLocalizationManager.Instance.CurrentLanguageCSVHeader == "English");
             }
         }
 
@@ -108,6 +114,26 @@ namespace SabadoKorean
             return Active && key != null && translations.TryGetValue(Hash(key), out value) ? value : original;
         }
 
+        internal void PrepareFont(TMP_Text component, string text)
+        {
+            if (!fontReady || !patchEnabled.Value || koreanFont == null || string.IsNullOrEmpty(text) || !text.Any(c => c >= '\uAC00' && c <= '\uD7A3')) return;
+            AttachFallback(component.font);
+            if (component.font == koreanFont) return;
+            int id = component.GetInstanceID();
+            originalFonts[id] = component.font;
+            originalMaterials[id] = component.fontSharedMaterial;
+            component.font = koreanFont;
+            component.fontSharedMaterial = koreanFont.material;
+            component.havePropertiesChanged = true;
+        }
+
+        internal void AttachFallback(TMP_FontAsset font)
+        {
+            if (!fontReady || koreanFont == null || font == null || font == koreanFont) return;
+            if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+            if (!font.fallbackFontAssetTable.Contains(koreanFont)) font.fallbackFontAssetTable.Add(koreanFont);
+        }
+
         private void Update()
         {
             if (Time.unscaledTime < nextScan || koreanFont == null) return;
@@ -122,6 +148,27 @@ namespace SabadoKorean
                 if (!Active)
                 {
                     if (changed.TryGetValue(id, out previous) && current == previous[1]) component.text = previous[0];
+                    if (component.text.Any(c => c >= '\uAC00' && c <= '\uD7A3'))
+                    {
+                        // The Korean option must remain readable while another language is selected.
+                        PrepareFont(component, component.text);
+                        continue;
+                    }
+                    TMP_FontAsset oldFont;
+                    if (component.font == koreanFont && originalFonts.TryGetValue(id, out oldFont) && oldFont != null)
+                    {
+                        component.font = oldFont;
+                        component.fontSharedMaterial = originalMaterials[id];
+                    }
+                    float[] layout;
+                    if (originalLayout.TryGetValue(id, out layout))
+                    {
+                        component.enableAutoSizing = layout[0] != 0;
+                        component.fontSizeMin = layout[1];
+                        component.fontSizeMax = layout[2];
+                        component.fontSize = layout[3];
+                        originalLayout.Remove(id);
+                    }
                     continue;
                 }
                 string replacement;
@@ -132,16 +179,20 @@ namespace SabadoKorean
                     current = replacement;
                 }
                 if (!current.Any(c => c >= '\uAC00' && c <= '\uD7A3')) continue;
-                if (component.font != koreanFont)
-                {
-                    component.font = koreanFont;
-                    component.fontSharedMaterial = koreanFont.material;
-                    component.havePropertiesChanged = true;
-                }
+                PrepareFont(component, current);
                 string marker = id + ":" + current;
                 if (reported.Add(marker))
                 {
                     component.ForceMeshUpdate();
+                    if (component.isTextOverflowing && component is TextMeshProUGUI && component.rectTransform.rect.width > 4 && component.rectTransform.rect.height > 4)
+                    {
+                        if (!originalLayout.ContainsKey(id))
+                            originalLayout[id] = new[] {component.enableAutoSizing ? 1f : 0f, component.fontSizeMin, component.fontSizeMax, component.fontSize};
+                        component.fontSizeMax = originalLayout[id][3];
+                        component.fontSizeMin = Mathf.Max(6f, component.fontSizeMax * 0.65f);
+                        component.enableAutoSizing = true;
+                        component.ForceMeshUpdate();
+                    }
                     if (component.isTextOverflowing)
                         Logger.LogWarning("Layout overflow: " + component.name + " / " + current.Replace('\n', ' '));
                 }
@@ -151,6 +202,24 @@ namespace SabadoKorean
         private void OnDestroy()
         {
             if (harmony != null) harmony.UnpatchSelf();
+        }
+    }
+
+    [HarmonyPatch(typeof(TMP_Text), "set_text")]
+    internal static class FontBeforeTextPatch
+    {
+        private static void Prefix(TMP_Text __instance, string value)
+        {
+            if (KoreanPatch.Instance != null) KoreanPatch.Instance.PrepareFont(__instance, value);
+        }
+    }
+
+    [HarmonyPatch(typeof(TMP_Text), "set_font")]
+    internal static class FallbackBeforeFontPatch
+    {
+        private static void Prefix(TMP_FontAsset value)
+        {
+            if (KoreanPatch.Instance != null) KoreanPatch.Instance.AttachFallback(value);
         }
     }
 
@@ -169,9 +238,9 @@ namespace SabadoKorean
     {
         private static void Postfix(TMP_Dropdown ___languageDropdown)
         {
-            if (___languageDropdown == null || KoreanPatch.Instance == null || !KoreanPatch.Instance.Active) return;
+            if (___languageDropdown == null || KoreanPatch.Instance == null || !KoreanPatch.Instance.Enabled) return;
             foreach (var option in ___languageDropdown.options)
-                if (option.text == "English") option.text = "한국어 (패치)";
+                if (option.text == "English") option.text = "한국어";
             ___languageDropdown.RefreshShownValue();
         }
     }

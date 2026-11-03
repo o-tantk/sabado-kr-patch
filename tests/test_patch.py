@@ -84,6 +84,12 @@ class PatchSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch.child(self.game, "../outside")
 
+    def test_game_assets_cannot_be_smuggled_into_package(self):
+        (self.package / "game.bin").write_bytes(b"overwrite original")
+        with self.assertRaises(ValueError):
+            self.install()
+        self.assertEqual((self.game / "game.bin").read_bytes(), b"original game")
+
     def test_translation_tokens_and_native_quote_alias(self):
         key = 'key "quoted"'
         identity = patch.source_id(key)
