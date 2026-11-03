@@ -1,0 +1,5 @@
+# Unity asset extraction and editing
+UnityPy==1.25.4
+
+# Read-only .NET assembly metadata analysis
+dnfile==0.18.0

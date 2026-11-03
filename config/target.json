@@ -1,0 +1,12 @@
+{
+  "steam_app_id": 4986750,
+  "steam_build_id": "26402944",
+  "unity_version": "6000.0.31f1",
+  "files": {
+    "Sabado Day One.exe": "e5ab9457915339d6b537e09d4552516c826d099ed20487d487b26e728a26207f",
+    "UnityPlayer.dll": "ded00cfa6d1d77f780168a569e1e93c9e399acfd99f8614521df9209e66e9f6e",
+    "Sabado Day One_Data/Managed/Assembly-CSharp.dll": "703503ac5ff1903d9f80456f0ea2f012d48ee1d00b0060fcdf606b839978f261",
+    "Sabado Day One_Data/Managed/Unity.TextMeshPro.dll": "1abe6c2cb9d3fec8c1e8530b61fb57cde2f11f56271dca3651754511050a497b",
+    "Sabado Day One_Data/resources.assets": "ebef58069e3e82b7c8556efd91c25476b5379ae8bdfa00a7cdd2d252c7949627"
+  }
+}

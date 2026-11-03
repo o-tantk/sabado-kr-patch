@@ -9,3 +9,15 @@ Desktop.ini
 !.env.example
 !.env.sample
 !.env.template
+
+# Python analysis environment
+.venv/
+__pycache__/
+*.py[cod]
+
+# Original game data, downloaded dependencies, backups and verification captures
+/local/
+/build/
+/vendor/
+/dist/
+*.log
