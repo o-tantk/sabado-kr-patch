@@ -6,37 +6,10 @@
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'engine.ps1')
+. (Join-Path $PSScriptRoot 'discovery.ps1')
 $packageRoot = Split-Path -Parent $PSScriptRoot
 $title = 'Sabado 한국어 패치'
 $actionName = @{ Install = '설치 / 업데이트'; Remove = '제거'; Recover = '중단 작업 복구'; Status = '설치 상태 확인' }[$Action]
-
-function Find-Sabado {
-    $roots = @(
-        (Get-ItemProperty -LiteralPath 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath,
-        (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' -ErrorAction SilentlyContinue).InstallPath,
-        (Join-Path ${env:ProgramFiles(x86)} 'Steam')
-    ) | Where-Object { $_ } | Select-Object -Unique
-    $libraries = @($roots)
-    foreach ($root in $roots) {
-        $vdf = Join-Path $root 'steamapps\libraryfolders.vdf'
-        if (Test-Path -LiteralPath $vdf) {
-            foreach ($match in [regex]::Matches([IO.File]::ReadAllText($vdf), '"path"\s*"([^"]+)"')) {
-                $libraries += $match.Groups[1].Value.Replace('\\', '\')
-            }
-        }
-    }
-    foreach ($library in ($libraries | Select-Object -Unique)) {
-        $apps = Join-Path $library 'steamapps'
-        $appManifest = Join-Path $apps 'appmanifest_4986750.acf'
-        $name = 'Sabado'
-        if (Test-Path -LiteralPath $appManifest) {
-            $match = [regex]::Match([IO.File]::ReadAllText($appManifest), '"installdir"\s*"([^"]+)"')
-            if ($match.Success) { $name = $match.Groups[1].Value }
-        }
-        $candidate = Join-Path (Join-Path $apps 'common') $name
-        if ([IO.File]::Exists((Join-Path $candidate 'Sabado Day One.exe'))) { Get-NormalPath $candidate }
-    }
-}
 
 function Select-Sabado {
     $dialog = New-Object Windows.Forms.OpenFileDialog
@@ -54,8 +27,7 @@ try {
         Add-Type -AssemblyName System.Windows.Forms
         [Windows.Forms.Application]::EnableVisualStyles()
         if (-not $Game) {
-            $candidates = @(Find-Sabado | Select-Object -Unique)
-            if ($candidates.Count -eq 1) { $Game = $candidates[0] }
+            $Game = Find-Sabado
         }
         if ($Game) {
             $answer = [Windows.Forms.MessageBox]::Show("$actionName 작업을 진행할까요?`n`n게임 폴더: $Game`n`n게임을 먼저 종료해 주세요.`n[아니요]를 누르면 다른 게임 폴더를 선택합니다.", $title, 'YesNoCancel', 'Question')

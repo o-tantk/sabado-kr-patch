@@ -4,6 +4,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script:testRoot = Join-Path $root ('local\tests\installer-' + [Guid]::NewGuid().ToString('N'))
 $script:passed = 0
 $script:RealCopy = ${function:Copy-PatchFile}
+$script:RealComplete = ${function:Complete-PatchCopy}
 
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Expect-Failure([scriptblock]$Body) {
@@ -209,5 +210,40 @@ Case 'running game guard prevents changes' {
     $before = Snapshot $script:game
     Expect-Failure { Install-Test }
     Assert ((Snapshot $script:game) -eq $before) 'Game changed'
+}
+Case 'temporary Windows replacement errors are retried' {
+    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+    $script:remainingFailures = 2
+    $script:replacementAttempts = 0
+    function Complete-PatchCopy([string]$Temporary, [string]$Destination) {
+        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini')) {
+            $script:replacementAttempts++
+            if ($script:remainingFailures -gt 0) {
+                $script:remainingFailures--
+                throw [IO.IOException]::new('simulated ERROR_UNABLE_TO_REMOVE_REPLACED', (-2147024896 + 1175))
+            }
+        }
+        & $script:RealComplete $Temporary $Destination
+    }
+    Install-Test
+    Assert ($script:replacementAttempts -eq 3) 'Transient failure was not retried'
+    Remove-Test
+    Assert ((Get-Content -LiteralPath (Join-Path $script:game 'doorstop_config.ini') -Raw) -eq 'original config') 'Original lost'
+}
+Case 'persistent replacement errors stop after bounded retries and roll back' {
+    Put (Join-Path $script:game 'doorstop_config.ini') 'original config'
+    $before = Snapshot $script:game
+    $script:remainingFailures = 6
+    function Complete-PatchCopy([string]$Temporary, [string]$Destination) {
+        if ($Destination -eq (Join-Path $script:game 'doorstop_config.ini') -and $script:remainingFailures -gt 0) {
+            $script:remainingFailures--
+            throw [IO.IOException]::new('simulated sharing violation', (-2147024896 + 32))
+        }
+        & $script:RealComplete $Temporary $Destination
+    }
+    Expect-Failure { Install-Test }
+    Assert ($script:remainingFailures -eq 0) 'Unexpected retry count'
+    Assert ($script:lastError -match 'doorstop_config.ini') 'Error omits destination'
+    Assert ((Snapshot $script:game) -eq $before) 'Rollback failed'
 }
 Write-Output "$script:passed installer scenarios passed (Windows PowerShell $($PSVersionTable.PSVersion))."

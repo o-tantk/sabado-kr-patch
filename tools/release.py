@@ -42,7 +42,7 @@ def main():
         content = (ROOT / "installer" / source).read_text(encoding="ascii")
         (folder / name).write_bytes(content.replace("\r\n", "\n").replace("\n", "\r\n").encode("ascii"))
     (folder / "installer").mkdir()
-    for name in ("engine.ps1", "setup.ps1"):
+    for name in ("engine.ps1", "discovery.ps1", "setup.ps1"):
         content = (ROOT / "installer" / name).read_text(encoding="utf-8-sig")
         (folder / "installer" / name).write_text(content, encoding="utf-8-sig")
     shutil.copyfile(ROOT / "README.md", folder / "사용설명서.txt")

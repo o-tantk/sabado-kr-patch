@@ -56,6 +56,11 @@ function Assert-Hash([string]$Path, [string]$Expected) {
     }
 }
 
+function Complete-PatchCopy([string]$Temporary, [string]$Destination) {
+    if ([IO.File]::Exists($Destination)) { [IO.File]::Replace($Temporary, $Destination, [NullString]::Value) }
+    else { [IO.File]::Move($Temporary, $Destination) }
+}
+
 function Copy-PatchFile([string]$Source, [string]$Destination) {
     Assert-NoLink $Destination
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Destination)) | Out-Null
@@ -64,8 +69,21 @@ function Copy-PatchFile([string]$Source, [string]$Destination) {
         [IO.File]::Copy($Source, $temporary)
         $stream = [IO.File]::Open($temporary, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
         try { $stream.Flush($true) } finally { $stream.Dispose() }
-        if ([IO.File]::Exists($Destination)) { [IO.File]::Replace($temporary, $Destination, [NullString]::Value) }
-        else { [IO.File]::Move($temporary, $Destination) }
+        $originalHash = if ([IO.File]::Exists($Destination)) { Get-PatchHash $Destination } else { $null }
+        for ($attempt = 0; $attempt -lt 6; $attempt++) {
+            try { Complete-PatchCopy $temporary $Destination; break }
+            catch {
+                # Windows can temporarily refuse replacement while a file is in use.
+                # Retry only sharing/lock/remove-replaced errors, without changing ACLs.
+                $code = $_.Exception.GetBaseException().HResult -band 0xffff
+                if ($attempt -eq 5 -or $code -notin @(32, 33, 1175) -or -not [IO.File]::Exists($temporary)) {
+                    throw [IO.IOException]::new("파일을 교체할 수 없습니다: $Destination`n$($_.Exception.Message)", $_.Exception)
+                }
+                Start-Sleep -Milliseconds 100
+                $currentHash = if ([IO.File]::Exists($Destination)) { Get-PatchHash $Destination } else { $null }
+                if ($currentHash -ne $originalHash) { throw "재시도 중 파일이 변경되었습니다: $Destination" }
+            }
+        }
     } finally {
         if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
     }
