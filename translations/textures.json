@@ -1,0 +1,52 @@
+[
+  {
+    "id": "second-floor-note",
+    "kind": "material",
+    "asset": "sharedassets2.assets",
+    "path_id": 630,
+    "texture": "PaperNote",
+    "width": 1024,
+    "height": 1024,
+    "material": "Drywall",
+    "property": "_MainTex",
+    "file": "second-floor-note.png",
+    "ko": "2층에서\n문이 열린 방으로\n가세요",
+    "purpose": "문에 붙어 있는 다음 목적지 안내"
+  },
+  {
+    "id": "tutorial-interact",
+    "kind": "sprite",
+    "asset": "sharedassets3.assets",
+    "path_id": 92,
+    "texture": "CHESA MOODS1",
+    "width": 1920,
+    "height": 1080,
+    "file": "tutorial-interact.png",
+    "ko": "E 키: 상호작용",
+    "purpose": "튜토리얼 그림 속 대화 및 시험지 상호작용 안내"
+  },
+  {
+    "id": "tutorial-push",
+    "kind": "sprite",
+    "asset": "sharedassets3.assets",
+    "path_id": 67,
+    "texture": "PUSHHER",
+    "width": 1920,
+    "height": 1080,
+    "file": "tutorial-push.png",
+    "ko": "E 키: 밀기",
+    "purpose": "튜토리얼 그림 속 밀기 안내"
+  },
+  {
+    "id": "tutorial-calm",
+    "kind": "sprite",
+    "asset": "sharedassets3.assets",
+    "path_id": 68,
+    "texture": "CALMHER",
+    "width": 1920,
+    "height": 1080,
+    "file": "tutorial-calm.png",
+    "ko": "E 키: 진정시키기 / 체사 / 흐흑…",
+    "purpose": "튜토리얼 그림 속 진정시키기 안내와 이름·울음소리"
+  }
+]
