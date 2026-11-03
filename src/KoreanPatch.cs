@@ -13,7 +13,7 @@ using UnityEngine.TextCore.LowLevel;
 
 namespace SabadoKorean
 {
-    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.0")]
+    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.1")]
     public sealed class KoreanPatch : BaseUnityPlugin
     {
         internal static KoreanPatch Instance;
@@ -23,6 +23,8 @@ namespace SabadoKorean
         private readonly Dictionary<int, string[]> changed = new Dictionary<int, string[]>();
         private readonly Dictionary<int, TMP_FontAsset> originalFonts = new Dictionary<int, TMP_FontAsset>();
         private readonly Dictionary<int, Material> originalMaterials = new Dictionary<int, Material>();
+        private readonly Dictionary<int, Material> styledMaterials = new Dictionary<int, Material>();
+        private readonly HashSet<int> styledMaterialIds = new HashSet<int>();
         private readonly Dictionary<int, float[]> originalLayout = new Dictionary<int, float[]>();
         private readonly HashSet<string> reported = new HashSet<string>();
         private ConfigEntry<bool> patchEnabled;
@@ -118,13 +120,43 @@ namespace SabadoKorean
         {
             if (!fontReady || !patchEnabled.Value || koreanFont == null || string.IsNullOrEmpty(text) || !text.Any(c => c >= '\uAC00' && c <= '\uD7A3')) return;
             AttachFallback(component.font);
-            if (component.font == koreanFont) return;
+            Material source = component.fontSharedMaterial;
+            if (component.font == koreanFont && source != null && styledMaterialIds.Contains(source.GetInstanceID())) return;
             int id = component.GetInstanceID();
-            originalFonts[id] = component.font;
-            originalMaterials[id] = component.fontSharedMaterial;
+            if (component.font != koreanFont)
+            {
+                originalFonts[id] = component.font;
+                originalMaterials[id] = source;
+            }
+            else if (source != koreanFont.material && source != null && !styledMaterialIds.Contains(source.GetInstanceID()))
+                originalMaterials[id] = source;
+            else
+                originalMaterials.TryGetValue(id, out source);
+            Material styled = GetStyledMaterial(source);
             component.font = koreanFont;
-            component.fontSharedMaterial = koreanFont.material;
+            component.fontSharedMaterial = styled;
+            component.UpdateMeshPadding();
             component.havePropertiesChanged = true;
+        }
+
+        private Material GetStyledMaterial(Material source)
+        {
+            if (source == null) return koreanFont.material;
+            int id = source.GetInstanceID();
+            Material styled;
+            if (styledMaterials.TryGetValue(id, out styled) && styled != null) return styled;
+            // Preserve the text's outline, underlay, face color and shader keywords,
+            // while retaining the Korean atlas and its SDF metrics. Never edit a
+            // shared game material or the Korean font's default material in place.
+            styled = new Material(koreanFont.material);
+            TMP_MaterialManager.CopyMaterialPresetProperties(source, styled);
+            styled.name = "Sabado Korean / " + source.name;
+            DontDestroyOnLoad(styled);
+            styledMaterials[id] = styled;
+            styledMaterialIds.Add(styled.GetInstanceID());
+            if (source.HasProperty("_OutlineWidth"))
+                Logger.LogInfo("Korean material: " + source.name + "; outline=" + source.GetFloat("_OutlineWidth") + " -> " + styled.GetFloat("_OutlineWidth") + "; Korean atlas=" + (styled.mainTexture == koreanFont.material.mainTexture));
+            return styled;
         }
 
         internal void AttachFallback(TMP_FontAsset font)
@@ -202,6 +234,8 @@ namespace SabadoKorean
         private void OnDestroy()
         {
             if (harmony != null) harmony.UnpatchSelf();
+            foreach (Material material in styledMaterials.Values)
+                if (material != null) Destroy(material);
         }
     }
 
