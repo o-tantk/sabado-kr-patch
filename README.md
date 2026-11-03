@@ -2,9 +2,9 @@
 
 Windows Steam판 **Sabado**의 비공식 한국어 패치 초안이다. 대상은 App ID `4986750`, Steam build `26402944`, 메뉴 표기 **Full Version 1.0.1**, Unity `6000.0.31f1` / Mono x64이다. 다른 빌드는 원본 해시 검사에서 설치를 거부한다.
 
-영어가 있는 고유 키 **493개**와 추가 UI 문구 **11개**를 번역했다. 대사·목표·튜토리얼 번역은 포함하지만, 모든 장면을 플레이하며 검수한 완성판은 아니다. 실제 확인 범위와 미해결 항목은 [제작·검증 기록](docs/korean-patch.md)에 구분했다.
+영어가 있는 고유 키 **493개**와 추가 UI 문구 **133개**를 번역했다. 추가 UI에는 캐릭터·아이템 이름, 챕터 선택, 상호작용 안내가 포함된다. 대사·목표·튜토리얼 번역은 포함하지만, 모든 장면을 플레이하며 검수한 완성판은 아니다. 실제 확인 범위와 미해결 항목은 [제작·검증 기록](docs/korean-patch.md)에 구분했다.
 
-현재 설치본은 **0.1.1**이다. 메뉴·설정에 더해 첫 꿈 장면의 실제 한국어 자막을 확인했다. 한글 폰트로 바꿀 때 원래 자막의 외곽선·그림자·색을 유지하도록 수정했고, 흰 배경 위에서도 자막이 읽히는 것을 확인했다. 실제 설치본에서 제거·원본 230개 파일 해시 검사·재설치도 완료했다. 모든 챕터와 해상도에 대한 검수는 남아 있다.
+현재 설치본은 **0.1.2**이다. 실제 화면에서 대사 화자 제이콥, 집어 든 공책, 챕터 목록과 불러오기 메뉴의 한국어 표시를 확인했다. 게임이 글자를 설정하는 순간 번역하고, 색상 태그·복제 번호·수치는 보존한다. 한글 폰트에서도 원래 자막의 외곽선·그림자·색을 유지한다. 0.1.1에서 실제 설치본 제거·원본 230개 파일 해시 검사·재설치를 검증했다. 모든 챕터와 해상도에 대한 검수는 남아 있다.
 
 ## 적용 방식과 요구 사항
 
@@ -20,14 +20,16 @@ BepInEx 5.4.23.6 Mono x64와 C# 플러그인이 **English 텍스트 슬롯**을 
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-tools.txt
 .\.venv\Scripts\python.exe tools/survey.py
+.\.venv\Scripts\python.exe tools/survey_extra.py
 .\tools\fetch-deps.ps1
 .\tools\build.ps1
 .\.venv\Scripts\python.exe tools/patch.py package
 .\.venv\Scripts\python.exe tools/check.py
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\tools\test-display.ps1
 ```
 
-`survey.py`는 설치 폴더를 읽기만 하며, 추출 자료는 `local/survey/`에 쓴다. `fetch-deps.ps1`은 공식 BepInEx 릴리스를 내려받아 고정된 SHA-256을 검사한다. 컴파일러 위치가 다르면 `build.ps1 -Editor "편집기 설치 경로"`를 사용한다. 결과는 `dist/SabadoKorean/`에 생성된다. 위 과정은 이미 이 작업 폴더에서 수행했다.
+`survey.py`와 `survey_extra.py`는 설치 폴더를 읽기만 하며, 추출 자료는 `local/survey/`와 `local/survey-extra/`에 쓴다. 후자는 아이템 필드, 잡을 수 있는 물체 이름과 추가 UI 후보를 조사한다. 후보를 자동으로 번역하거나 원본에 쓰지 않는다. `fetch-deps.ps1`은 공식 BepInEx 릴리스를 내려받아 고정된 SHA-256을 검사한다. 컴파일러 위치가 다르면 `build.ps1 -Editor "편집기 설치 경로"`를 사용한다. 결과는 `dist/SabadoKorean/`에 생성된다. 위 과정은 이미 이 작업 폴더에서 수행했다.
 
 ## 설치·업데이트
 
