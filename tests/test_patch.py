@@ -100,6 +100,16 @@ class PatchSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch.validate_translations(catalog, {identity: "안녕"})
 
+    def test_ui_whitespace_aliases_and_conflicts(self):
+        _, ui, _ = patch.make_tables([], {}, {"Game\n tutorial": "게임 설명"})
+        self.assertEqual(ui[patch.source_id("Game tutorial")], "게임 설명")
+        with self.assertRaises(ValueError):
+            patch.make_tables([], {}, {"Game tutorial": "게임 설명", "Game\n tutorial": "다른 번역"})
+
+    def test_dynamic_ui_placeholders_are_preserved(self):
+        with self.assertRaises(ValueError):
+            patch.make_tables([], {}, {"You scored {0} points!": "점수를 얻었어요!"})
+
 
 if __name__ == "__main__":
     unittest.main()

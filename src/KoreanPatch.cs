@@ -13,7 +13,7 @@ using UnityEngine.TextCore.LowLevel;
 
 namespace SabadoKorean
 {
-    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.1")]
+    [BepInPlugin("local.sabado.korean", "Sabado Korean Patch", "0.1.2")]
     public sealed class KoreanPatch : BaseUnityPlugin
     {
         internal static KoreanPatch Instance;
@@ -116,6 +116,21 @@ namespace SabadoKorean
             return Active && key != null && translations.TryGetValue(Hash(key), out value) ? value : original;
         }
 
+        private string LookupUI(string text)
+        {
+            string value;
+            return ui.TryGetValue(Hash(text), out value) ? value : null;
+        }
+
+        internal string TranslateDisplay(TMP_Text component, string original)
+        {
+            if (!Active) return original;
+            string result = DisplayText.Translate(original, LookupUI);
+            if (result != original)
+                changed[component.GetInstanceID()] = new[] { original, result };
+            return result;
+        }
+
         internal void PrepareFont(TMP_Text component, string text)
         {
             if (!fontReady || !patchEnabled.Value || koreanFont == null || string.IsNullOrEmpty(text) || !text.Any(c => c >= '\uAC00' && c <= '\uD7A3')) return;
@@ -203,8 +218,8 @@ namespace SabadoKorean
                     }
                     continue;
                 }
-                string replacement;
-                if (ui.TryGetValue(Hash(current), out replacement) && replacement != current)
+                string replacement = TranslateDisplay(component, current);
+                if (replacement != current)
                 {
                     changed[id] = new[] { current, replacement };
                     component.text = replacement;
@@ -242,9 +257,11 @@ namespace SabadoKorean
     [HarmonyPatch(typeof(TMP_Text), "set_text")]
     internal static class FontBeforeTextPatch
     {
-        private static void Prefix(TMP_Text __instance, string value)
+        private static void Prefix(TMP_Text __instance, ref string value)
         {
-            if (KoreanPatch.Instance != null) KoreanPatch.Instance.PrepareFont(__instance, value);
+            if (KoreanPatch.Instance == null) return;
+            value = KoreanPatch.Instance.TranslateDisplay(__instance, value);
+            KoreanPatch.Instance.PrepareFont(__instance, value);
         }
     }
 

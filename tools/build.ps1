@@ -17,6 +17,7 @@ $arguments = @('-nologo', '-target:library', '-optimize+', '-deterministic+', '-
 $arguments += Get-ChildItem -LiteralPath $managed -Filter '*.dll' | ForEach-Object { '-r:"' + $_.FullName + '"' }
 $arguments += @('-r:"' + (Join-Path $core 'BepInEx.dll') + '"', '-r:"' + (Join-Path $core '0Harmony.dll') + '"')
 $arguments += '"' + (Join-Path $root 'src\KoreanPatch.cs') + '"'
+$arguments += '"' + (Join-Path $root 'src\DisplayText.cs') + '"'
 $responseFile = Join-Path $out 'compile.rsp'
 [IO.File]::WriteAllLines($responseFile, $arguments, [Text.UTF8Encoding]::new($false))
 & $mono $compiler -noconfig ('@' + $responseFile)

@@ -90,7 +90,7 @@ def make_tables(catalog, translations, extra_ui):
         if alias in keyed and keyed[alias] != korean:
             raise ValueError("Native CSV key alias conflict")
         keyed[alias] = korean
-        for original in (row["en"], row["en"].replace('"', "")):
+        for original in {row["en"], row["en"].replace('"', ""), re.sub(r"\s+", " ", row["en"])}:
             if not original:
                 continue
             digest = source_id(original)
@@ -103,7 +103,11 @@ def make_tables(catalog, translations, extra_ui):
     for original, korean in extra_ui.items():
         if Counter(TOKEN.findall(original)) != Counter(TOKEN.findall(korean)):
             raise ValueError("UI token mismatch: " + original)
-        ui[source_id(original)] = korean
+        for alias in {original, re.sub(r"\s+", " ", original.strip())}:
+            digest = source_id(alias)
+            if digest in ui and ui[digest] != korean:
+                raise ValueError("UI translation conflict: " + original)
+            ui[digest] = korean
     return keyed, ui, len(conflicts)
 
 
